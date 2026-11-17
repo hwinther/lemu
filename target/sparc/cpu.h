@@ -506,6 +506,12 @@ struct CPUArchState {
     uint64_t mmubpaction;
     uint64_t mmubpregs[4];
     uint64_t prom_addr;
+    /*
+     * The TLB holds an entry that sparc_cpu_tlb_fill made for a failed
+     * translation (no-fault mode or traps disabled), with its permissions
+     * overridden. A change of MMU_NF flushes the TLB only while this is set.
+     */
+    bool mmu_nf_entries;
     /* Halt in the idle loop of SunOS 4.1.4, see sunos_idle.c */
     bool sunos_idle;
     int64_t sunos_idle_since;   /* when the loop first found no work */
