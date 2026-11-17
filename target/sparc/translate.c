@@ -198,6 +198,7 @@ typedef struct DisasContext {
 #else
     bool fsr_qne;
     bool sunos_idle;
+    bool solaris_idle;
 #endif
 #endif
 
@@ -5841,6 +5842,8 @@ static void sparc_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     dc->fsr_qne = (dc->base.tb->flags & TB_FLAG_FSR_QNE) != 0;
     dc->sunos_idle = cpu_env(cs)->sunos_idle && dc->supervisor &&
                      !(tb_cflags(dc->base.tb) & CF_SINGLE_STEP);
+    dc->solaris_idle = cpu_env(cs)->solaris_idle && dc->supervisor &&
+                       !(tb_cflags(dc->base.tb) & CF_SINGLE_STEP);
 # endif
 #endif
 #ifdef TARGET_SPARC64
@@ -5964,6 +5967,151 @@ static void gen_sunos_idle(DisasContext *dc, CPUSPARCState *env)
                           tcg_constant_tl(whichqs),
                           tcg_constant_tl(qrunflag));
 }
+
+/*
+ * Solaris 2.5.1 to 9 call idle_cpu from the idle loop in idle() when no
+ * thread is runnable; see solaris_idle.c. These are the words of that
+ * loop from the load of disp_nrunnable to the call, each with its mask,
+ * as the compiler of each release laid them out. Registers, offsets and
+ * addresses are left out; gen_solaris_idle() checks that the words use
+ * the registers consistently.
+ */
+#define SOLARIS_CALL            0x9fc00000  /* call %rs1 (jmpl %rs1, %o7) */
+#define SOLARIS_CALL_MASK       0xfff83fff
+
+#define SOL_ANY         { 0x00000000, 0x00000000 }
+/* ld [%rs1 + simm13], %rd */
+#define SOL_LD_IMM      { 0xc0002000, 0xc1f82000 }
+/* ld [%rs1], %rd */
+#define SOL_LD_REG      { 0xc0000000, 0xc1f83fff }
+/* cmp %rs1, 0 */
+#define SOL_CMP0        { 0x80a02000, 0xfff83fff }
+/* tst %rs2 */
+#define SOL_TST         { 0x80900000, 0xffffffe0 }
+/* sethi %hi(idle_cpu), %rd */
+#define SOL_SETHI       { 0x01000000, 0xc1c00000 }
+/* call swtch */
+#define SOL_CALL_DISP   { 0x40000000, 0xc0000000 }
+#define SOL_NOP         { 0x01000000, 0xffffffff }
+/* b top */
+#define SOL_BA          { 0x10800000, 0xffc00000 }
+#define SOL_CALL_REG    { SOLARIS_CALL, SOLARIS_CALL_MASK }
+
+typedef struct SolarisIdleLoop {
+    const char *kernel;
+    int len;
+    /*
+     * w[0] loads disp_nrunnable, w[1] tests it, w[2] branches on it,
+     * w[3] is the sethi of &idle_cpu, w[len - 2] loads idle_cpu and
+     * w[len - 1] calls it.
+     */
+    uint32_t w[10][2];
+} SolarisIdleLoop;
+
+static const SolarisIdleLoop solaris_idle_loops[] = {
+    { "2.6/7/8", 10, {
+        SOL_LD_IMM,                 /*        ld    [%cpu + nrunnable], %x */
+        SOL_CMP0,                   /*        cmp   %x, 0 */
+        { 0x02800006, 0xffffffff }, /*        be    idle */
+        SOL_SETHI,                  /*         sethi %hi(idle_cpu), %y */
+        SOL_CALL_DISP,              /*        call  swtch */
+        SOL_NOP,                    /*         nop */
+        SOL_BA,                     /*        b     top */
+        SOL_ANY,                    /*         ... */
+        SOL_LD_IMM,                 /* idle:  ld    [%y + lo], %z */
+        SOL_CALL_REG,               /*        call  %z */
+    } },
+    { "9", 6, {
+        SOL_LD_IMM,                 /*        ld    [%cpu + nrunnable], %x */
+        SOL_CMP0,                   /*        cmp   %x, 0 */
+        { 0x12800007, 0xffffffff }, /*        bne   run */
+        SOL_SETHI,                  /*         sethi %hi(idle_cpu), %y */
+        SOL_LD_IMM,                 /*        ld    [%y + lo], %z */
+        SOL_CALL_REG,               /*        call  %z */
+    } },
+    { "2.5.1", 10, {
+        SOL_LD_REG,                 /*        ld    [%nrunnable], %x */
+        SOL_TST,                    /*        tst   %x */
+        { 0x22800006, 0xffffffff }, /*        be,a  idle */
+        SOL_SETHI,                  /*         sethi %hi(idle_cpu), %y */
+        SOL_CALL_DISP,              /*        call  swtch */
+        SOL_NOP,                    /*         nop */
+        SOL_BA,                     /*        b     top */
+        SOL_ANY,                    /*         ... */
+        SOL_LD_IMM,                 /* idle:  ld    [%y + lo], %z */
+        SOL_CALL_REG,               /*        call  %z */
+    } },
+};
+
+/*
+ * At a call through a register, if it is the call of idle_cpu in the
+ * Solaris idle loop, let helper_solaris_idle() halt the CPU
+ */
+static void gen_solaris_idle(DisasContext *dc, CPUSPARCState *env,
+                             uint32_t insn)
+{
+    uint32_t w[ARRAY_SIZE(solaris_idle_loops[0].w)];
+    int k, i;
+
+    /* The call is not in a delay slot */
+    if (dc->npc != dc->pc + 4) {
+        return;
+    }
+    /* Off RAM, translator_ldl_end() would record these words as code */
+    if (tb_page_addr0(dc->base.tb) == -1) {
+        return;
+    }
+    for (k = 0; k < ARRAY_SIZE(solaris_idle_loops); k++) {
+        const SolarisIdleLoop *l = &solaris_idle_loops[k];
+        target_ulong start = dc->pc - 4 * (l->len - 1);
+        int cpu, x, y, z;
+        int32_t off;
+        TCGv addr;
+
+        if (!translator_is_same_page(&dc->base, start)) {
+            continue;
+        }
+        for (i = 0; i < l->len - 1; i++) {
+            w[i] = translator_ldl_end(env, &dc->base, start + 4 * i, MO_BE);
+            if ((w[i] & l->w[i][1]) != l->w[i][0]) {
+                break;
+            }
+        }
+        if (i < l->len - 1) {
+            continue;
+        }
+        w[l->len - 1] = insn;
+
+        /* ld [%cpu + off], %x; tst %x */
+        cpu = extract32(w[0], 14, 5);
+        off = extract32(w[0], 13, 1) ? sextract32(w[0], 0, 13) : 0;
+        x = extract32(w[0], 25, 5);
+        if (x != (extract32(w[1], 13, 1) ? extract32(w[1], 14, 5)
+                                         : extract32(w[1], 0, 5))) {
+            continue;
+        }
+        /* sethi %hi(idle_cpu), %y; ld [%y + lo], %z; call %z */
+        y = extract32(w[3], 25, 5);
+        z = extract32(w[l->len - 2], 25, 5);
+        if (extract32(w[l->len - 2], 14, 5) != y ||
+            extract32(w[l->len - 1], 14, 5) != z) {
+            continue;
+        }
+        /* The loop writes %x, %y and %z, so %cpu must be another one */
+        if (cpu == x || cpu == y || cpu == z) {
+            continue;
+        }
+
+        trace_sparc_solaris_idle_match(l->kernel, dc->pc, cpu, off);
+
+        /* The helper reads the clock */
+        translator_io_start(&dc->base);
+        addr = tcg_temp_new();
+        tcg_gen_addi_tl(addr, gen_load_gpr(dc, cpu), off);
+        gen_helper_solaris_idle(tcg_env, tcg_constant_tl(dc->pc), addr);
+        return;
+    }
+}
 #endif
 
 static void sparc_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
@@ -5977,6 +6125,9 @@ static void sparc_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
 #if !defined(CONFIG_USER_ONLY) && !defined(TARGET_SPARC64)
     if (insn == sunos_idle_loop[SUNOS_IDLE_BRANCH][0] && dc->sunos_idle) {
         gen_sunos_idle(dc, cpu_env(cs));
+    }
+    if ((insn & SOLARIS_CALL_MASK) == SOLARIS_CALL && dc->solaris_idle) {
+        gen_solaris_idle(dc, cpu_env(cs), insn);
     }
 #endif
 

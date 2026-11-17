@@ -510,6 +510,10 @@ struct CPUArchState {
     bool sunos_idle;
     int64_t sunos_idle_since;   /* when the loop first found no work */
     int64_t sunos_idle_last;    /* when the loop last found no work */
+    /* Halt in the idle loop of Solaris 2.x, see solaris_idle.c */
+    bool solaris_idle;
+    int64_t solaris_idle_since; /* when the loop first found no work */
+    int64_t solaris_idle_last;  /* when the loop last found no work */
 #endif
     float_status fp_status;
 #if defined(TARGET_SPARC64)
