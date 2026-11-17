@@ -220,7 +220,7 @@ qtests_sh4 = (config_all_devices.has_key('CONFIG_ISA_TESTDEV') ? ['endianness-te
 qtests_sh4eb = (config_all_devices.has_key('CONFIG_ISA_TESTDEV') ? ['endianness-test'] : [])
 
 qtests_sparc = ['prom-env-test', 'm48t59-test', 'boot-serial-test',
-                'sun4m-escc-test'] + \
+                'sun4m-escc-test', 'sun4m-apc-test'] + \
   qtests_filter
 
 qtests_sparc64 = \
