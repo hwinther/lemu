@@ -222,7 +222,8 @@ qtests_sh4eb = (config_all_devices.has_key('CONFIG_ISA_TESTDEV') ? ['endianness-
 qtests_sparc = ['prom-env-test', 'm48t59-test', 'boot-serial-test',
                 'sun4m-escc-test', 'sun4m-apc-test',
                 'sun4m-solaris-idle-test', 'sun4m-mmu-nofault-test',
-                'sun4m-pil-delay-slot-test'] + \
+                'sun4m-pil-delay-slot-test',
+                'sun4m-solaris-smp-idle-test'] + \
   qtests_filter
 
 qtests_sparc64 = \
