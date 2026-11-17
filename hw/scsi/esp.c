@@ -1130,6 +1130,8 @@ static void esp_soft_reset(ESPState *s)
 static void esp_bus_reset(ESPState *s)
 {
     bus_cold_reset(BUS(&s->bus));
+    /* A bus reset disconnects every device: back to disconnected mode */
+    s->asc_mode = ESP_ASC_MODE_DIS;
 }
 
 static void parent_esp_reset(ESPState *s, int irq, int level)
