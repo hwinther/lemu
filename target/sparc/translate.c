@@ -2627,6 +2627,19 @@ static bool advance_pc(DisasContext *dc)
             break;
 
         case JUMP_PC:
+            if (dc->base.is_jmp == DISAS_EXIT) {
+                /*
+                 * The insn in the delay slot asked for an exit to the
+                 * main loop (e.g. a write to %psr that lowered PIL):
+                 * resolve the branch at run time instead of chaining.
+                 */
+                gen_generic_branch(dc);
+                tcg_gen_mov_tl(cpu_pc, cpu_npc);
+                tcg_gen_addi_tl(cpu_npc, cpu_npc, 4);
+                dc->pc = DYNAMIC_PC;
+                dc->npc = DYNAMIC_PC;
+                break;
+            }
             /* we can do a static jump */
             l1 = gen_new_label();
             tcg_gen_brcondi_tl(dc->jump.cond, dc->jump.c1, dc->jump.c2, l1);
@@ -6138,7 +6151,12 @@ static void sparc_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
     if (dc->base.is_jmp == DISAS_NORETURN) {
         return;
     }
-    if (dc->pc != dc->base.pc_next) {
+    /*
+     * Keep DISAS_EXIT when the insn was in a delay slot: it is how a
+     * write to %psr (or a membar #Sync on sparc64) gets the main loop
+     * to look at pending interrupts again.
+     */
+    if (dc->pc != dc->base.pc_next && dc->base.is_jmp != DISAS_EXIT) {
         dc->base.is_jmp = DISAS_TOO_MANY;
     }
 }
@@ -6202,8 +6220,11 @@ static void sparc_tr_tb_stop(DisasContextBase *dcbase, CPUState *cs)
        break;
 
     case DISAS_EXIT:
-        /* Exit TB */
-        save_state(dc);
+        /* Exit TB; after a delay slot the PC may be known only at run time */
+        if (!(dc->pc & 3)) {
+            tcg_gen_movi_tl(cpu_pc, dc->pc);
+        }
+        save_npc(dc);
         tcg_gen_exit_tb(NULL, 0);
         break;
 
