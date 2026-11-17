@@ -228,7 +228,7 @@ qtests_sparc = ['prom-env-test', 'm48t59-test', 'boot-serial-test',
 qtests_sparc64 = \
   (config_all_devices.has_key('CONFIG_ISA_TESTDEV') ? ['endianness-test'] : []) +            \
   qtests_filter + \
-  ['prom-env-test', 'boot-serial-test']
+  ['prom-env-test', 'boot-serial-test', 'sun4u-cmd646-test']
 
 qtests_npcm7xx = \
   ['npcm7xx_adc-test',
