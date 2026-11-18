@@ -40,6 +40,9 @@ commit.
   and the RDP server (`-rdp`, see `ui/rdp/README.md`).
   qemu-system-hppa, qemu-system-i386, qemu-system-sparc and
   qemu-system-m68k get the same set.
+- `build-windows.sh` also builds qemu-system-sparc64, for the Windows
+  build in `.github/workflows/build-windows.yml`. No kit uses it, and
+  `stage.sh` leaves it out.
 - `build-mac.sh` prints the oldest macOS the binaries run on
   (`needs macOS ...`). The kit READMEs must say the same.
 
