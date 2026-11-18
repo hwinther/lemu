@@ -224,7 +224,8 @@ qtests_sparc = ['prom-env-test', 'm48t59-test', 'boot-serial-test',
                 'sun4m-solaris-idle-test', 'sun4m-mmu-nofault-test',
                 'sun4m-pil-delay-slot-test',
                 'sun4m-solaris-smp-idle-test',
-                'sun4m-fsr-rd-test'] + \
+                'sun4m-fsr-rd-test',
+                'sun4m-cs4231-test'] + \
   qtests_filter
 
 qtests_sparc64 = \
