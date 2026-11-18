@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 #
 # Functional test that stops OpenBIOS at its prompt on a SPARCstation 5
-# and checks the SCSI devices and aliases it found
+# and checks the SCSI devices and aliases it found and the codec's
+# interrupt properties
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -46,6 +47,16 @@ class OpenBIOSSun4m(QemuSystemTest):
         aliases = self.forth('dev /aliases .properties device-end')
         self.assertNotIn('UNKNOWN', aliases)
         self.assertRegex(aliases, r'(?m)^disk +"[^"]*/sd@3,0"$')
+
+    def test_cs4231_intr(self):
+        # The SS-5's codec is at SBus level 5 ("interrupts" 5), which is
+        # processor level 9 on sun4m: "intr" must say 9, as on the real
+        # machine's PROM. SunOS 4 takes "intr", Solaris "interrupts"
+        self.boot_to_prompt()
+        props = self.forth('dev /iommu/sbus/SUNW,CS4231 .properties '
+                           'device-end')
+        self.assertRegex(props, r'(?m)^interrupts +5 *$')
+        self.assertRegex(props, r'(?m)^intr +-- 8 : 00 00 00 09 00 00 00 00')
 
 
 if __name__ == '__main__':
