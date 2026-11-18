@@ -54,6 +54,7 @@
 #include "hw/core/qdev-properties.h"
 #include "hw/sparc/sun4m_iommu.h"
 #include "migration/vmstate.h"
+#include "qapi/error.h"
 #include "qemu/audio.h"
 #include "qemu/bswap.h"
 #include "qemu/host-utils.h"
@@ -445,6 +446,9 @@ static void cs_play_setup(CSState *s)
     s->play_freq = as.freq;
     s->play_fmt = (val >> 5) & ((s->dregs[CS_MODE] & CS_MODE2) ? 7 : 3);
     trace_cs4231_play_format(as.freq, as.nchannels, s->play_fmt);
+    if (!s->audio_be) {
+        return;
+    }
     s->voice = audio_be_open_out(s->audio_be, s->voice, "cs4231", s,
                                  cs_audio_callback, &as);
     cs_set_volume(s);
@@ -460,10 +464,8 @@ static void cs_reset(DeviceState *d)
     s->dregs[25] = CS_VER;
     s->play_next = false;
     s->play_running = false;
-    if (s->audio_be) {
-        cs_play_setup(s);
-        cs_play_update(s);
-    }
+    cs_play_setup(s);
+    cs_play_update(s);
 }
 
 static uint64_t cs_mem_read(void *opaque, hwaddr addr,
@@ -617,8 +619,16 @@ static void cs4231_init(Object *obj)
 static void cs4231_realize(DeviceState *dev, Error **errp)
 {
     CSState *s = CS4231(dev);
+    Error *err = NULL;
 
-    if (!audio_be_check(&s->audio_be, errp)) {
+    /*
+     * Without an audiodev the codec takes the default backend. The codec
+     * is on the board, so if there is none the machine still starts: the
+     * codec keeps its registers and plays nothing.
+     */
+    if (!audio_be_check(&s->audio_be, &err)) {
+        error_prepend(&err, "cs4231: no sound: ");
+        warn_report_err(err);
         return;
     }
     cs_play_setup(s);
