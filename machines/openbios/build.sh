@@ -5,7 +5,8 @@
 # usage: build.sh
 #
 # The sparc32 build takes the patches whose names don't have -sparc64-:
-# 0001 (esp selection timeout) and 0008 (Stop-A/op_enter). The sparc64
+# 0001 (esp selection timeout), 0008 (Stop-A/op_enter) and 0018 (the
+# cs4231's "intr"). The sparc64
 # build takes all of them. 0006, 0007, 0010, 0013, 0014 and 0017 change
 # generic code that sparc32 also runs (client.fs "forth", fcode.fs
 # "instance", pathres.fs my-unit, ofmem align_ptr() and claim, the 64-bit

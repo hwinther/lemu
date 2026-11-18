@@ -8,7 +8,9 @@ illumos need from the firmware and RAM above 3 GB (up to 8 GB). [build.sh](build
 
 ## What the patches fix
 
-The sparc32 image has 0001 and 0008. The sparc64 image has all fifteen.
+The sparc32 image has 0001, 0008 and 0018. The sparc64 build takes all of
+them; the image in `pc-bios/` was built before 0018 came, which changes a
+sparc32 driver only.
 
 | Patch | Guest and symptom |
 |---|---|
@@ -27,6 +29,7 @@ The sparc32 image has 0001 and 0008. The sparc64 image has all fifteen.
 | 0015 sparc64: whole physical address in phys.lo | sun4u with more than 4 GB: `claim`, `SUNW,retain` and `translate` cut phys.lo to 32 bits, which 64-bit NetBSD and Solaris read alone. NetBSD's kernel pages were not where it believed, and it panicked under memory pressure (`illegal instruction`) |
 | 0016 sparc64: client interface with interrupts off | sun4u, illumos (Tribblix) and Solaris 10: an interrupt in the middle of the client interface's register window walk ran the client's trap handler on a wrong window: in four of seven boots of the Tribblix live CD, an endless window spill or `bad stack overflow at TL 2` |
 | 0017 fcode: xa+ and xa1+ in the 64-bit table | sun4u, illumos: two missing entries shifted every 64-bit FCode token from 0x24a on (`xlsplit` ran `xwflips`); the ZFS boot block of a Tribblix disk crashed (`Unhandled Exception 0x0000000000000030`). Generic code, tested on sun4u only |
+| 0018 sparc32: cs4231 "intr" 9 | sun4m, sound on the SS-5: the codec's node had "interrupts" 5 (SBus level 5, processor level 9) and "intr" 5 (processor level 5), so Solaris and SunOS 4 waited at different levels. It now says 9, as the SS-5's own PROM does. Goes with the QEMU change that raises the codec at SBus level 5 (`hw/sparc/sun4m.c`); one without the other leaves SunOS 4 without the codec's interrupt |
 
 Each patch header has the details. The numbers and file names match
 another tree that carries the same patches, and later patches keep their
@@ -36,10 +39,6 @@ numbers from there. The gaps:
   [../sun4m/cgthree/cgthree.fs](../sun4m/cgthree/README.md) in LEMU.
 - **0012** (the client interface's `boot` service resets the machine, for
   Solaris's reboot) does not work yet: the machine hangs.
-- **0018** (sparc32: the SS-5's `SUNW,CS4231` node gets `intr` 9, the level
-  of its SBus level) needs a QEMU change that LEMU doesn't have yet (the
-  codec's interrupt at SBus level 5). Without it, it would break the sound
-  of the SunOS kit. It comes with that change.
 
 ## Rebuild
 
@@ -54,7 +53,7 @@ out), applies the patches and builds in a `debian:13` container with
 `pc-bios/openbios-sparc32` and `pc-bios/openbios-sparc64`.
 
 - The sparc32 build takes the patches whose names don't have `-sparc64-`:
-  0001 and 0008. 0006, 0007, 0010, 0013, 0014 and 0017 change generic
+  0001, 0008 and 0018. 0006, 0007, 0010, 0013, 0014 and 0017 change generic
   code that sparc32 runs too, but were tested on sun4u only, so they are
   named `-sparc64-`.
 - The sparc32 build gets `../sun4m/cgthree/cgthree.fs` as
@@ -78,7 +77,7 @@ apply and run the tests below.
 In a build with `sparc-softmmu` and `sparc64-softmmu`:
 
 - `tests/functional/sparc/test_openbios.py` (0001: no device on an empty
-  SCSI target, the `disk` alias) and
+  SCSI target, the `disk` alias; 0018: the codec's `intr`) and
   `tests/functional/sparc64/test_openbios.py` (0003 to 0007, 0009 to 0011,
   0013 with 8 GB, 0015 with 6 GB and 0017, one test each)
   stop at the OpenBIOS prompt on the serial console and check the device
