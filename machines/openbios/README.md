@@ -118,3 +118,25 @@ Reported with QEMU 11.1.3 and these patches; not run with LEMU:
 - **Solaris kernel debugger words:** `kdbg.fth` stops at `could not find
   debugger-vocabulary-hook`; OBP-internal words OpenBIOS lacks. Only the
   firmware's symbol lookup is lost.
+
+## Known issues
+
+Seen with the images in `pc-bios/`:
+
+- **`decode-unit isn't unique.` and `encode-unit isn't unique.`** at
+  sun4u power-on. 0009 defines `decode-unit` and `encode-unit` with
+  `feval` in the ebus node, which already has the two methods of the PCI
+  bridge, and Forth warns that the names are defined twice in that word
+  list. The new definitions are found first, so the ebus children get
+  their space,offset names (`su@14,3f8`) as intended; nothing else
+  changes. A fix at the source would give the ebus node methods of its
+  own instead of redefining the inherited ones. A build without 0011
+  prints the same; 0011 needs 0009 (it uses 0009's `encode-unit-2hex`),
+  and an image with 0011 but without 0009 stops at power-on.
+- **`(enter)` typed at the sun4m prompt, then `go`,** stops QEMU with
+  `Trap 0x21 (Instruction Access Error) while interrupts disabled, Error
+  state` right after the next ` ok`. `(enter)` is 0008's word for the
+  romvec's op_enter, which a client calls with the client in memory; at
+  the firmware's own prompt it is not meant to be run (0008 leaves
+  Stop-A at the prompt ignored). `go` alone gives `No valid state has
+  been set by load or init-program`, as with QEMU's image.
