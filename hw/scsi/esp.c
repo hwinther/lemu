@@ -478,7 +478,8 @@ static bool esp_cdb_ready(ESPState *s)
         cdblen = 10;
     }
 
-    return len >= cdblen;
+    /* The IDENTIFY and other message bytes before the CDB don't count */
+    return len - s->cmdfifo_cdb_offset >= cdblen;
 }
 
 static void esp_dma_ti_check(ESPState *s)
