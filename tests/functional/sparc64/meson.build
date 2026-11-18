@@ -6,6 +6,7 @@ test_sparc64_timeouts = {
 
 tests_sparc64_system_quick = [
   'migration',
+  'openbios',
 ]
 
 tests_sparc64_system_thorough = [

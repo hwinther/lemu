@@ -6,6 +6,7 @@ test_sparc_timeouts = {
 
 tests_sparc_system_quick = [
   'migration',
+  'openbios',
 ]
 
 tests_sparc_system_thorough = [
