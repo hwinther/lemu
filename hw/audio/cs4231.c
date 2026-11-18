@@ -445,6 +445,9 @@ static void cs_play_setup(CSState *s)
     s->play_freq = as.freq;
     s->play_fmt = (val >> 5) & ((s->dregs[CS_MODE] & CS_MODE2) ? 7 : 3);
     trace_cs4231_play_format(as.freq, as.nchannels, s->play_fmt);
+    if (!s->audio_be) {
+        return;
+    }
     s->voice = audio_be_open_out(s->audio_be, s->voice, "cs4231", s,
                                  cs_audio_callback, &as);
     cs_set_volume(s);
@@ -618,6 +621,10 @@ static void cs4231_realize(DeviceState *dev, Error **errp)
 {
     CSState *s = CS4231(dev);
 
+    /* no audiodev: the registers only, no sound (the machine's default) */
+    if (!s->audio_be) {
+        return;
+    }
     if (!audio_be_check(&s->audio_be, errp)) {
         return;
     }
