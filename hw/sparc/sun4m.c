@@ -860,7 +860,8 @@ static void sun4m_hw_init(MachineState *machine)
     uint32_t initrd_size;
     DriveInfo *fd[MAX_FD];
     FWCfgState *fw_cfg;
-    DeviceState *dev, *ms_kb_orgate, *serial_orgate;
+    DeviceState *dev, *ms_kb_orgate, *serial_orgate, *sbus5_orgate = NULL;
+    qemu_irq sbus5_irq;
     DeviceState *cpus[MAX_CPUS];
     SysBusDevice *s;
     void *iommu;
@@ -909,6 +910,21 @@ static void sun4m_hw_init(MachineState *machine)
 
     for (i = 0; i < 32; i++) {
         slavio_irq[i] = qdev_get_gpio_in(slavio_intctl, i);
+    }
+
+    /*
+     * SBus level 5 (interrupt bit 11, processor level 9): the frame buffer,
+     * and on the SS-5 the CS4231 too, as on the real machine. Two devices
+     * on one level need an OR gate.
+     */
+    sbus5_irq = slavio_irq[11];
+    if (hwdef->cs_base) {
+        sbus5_orgate = qdev_new(TYPE_OR_IRQ);
+        object_property_set_int(OBJECT(sbus5_orgate), "num-lines", 2,
+                                &error_fatal);
+        qdev_realize_and_unref(sbus5_orgate, NULL, &error_fatal);
+        qdev_connect_gpio_out(sbus5_orgate, 0, slavio_irq[11]);
+        sbus5_irq = qdev_get_gpio_in(sbus5_orgate, 0);
     }
     for (i = 0; i < MAX_CPUS; i++) {
         slavio_cpu_irq[i] = qdev_get_gpio_in(slavio_intctl, 32 + i);
@@ -975,7 +991,7 @@ static void sun4m_hw_init(MachineState *machine)
             }
 
             /* sbus irq 5 */
-            cg3_init(hwdef->tcx_base, slavio_irq[11],
+            cg3_init(hwdef->tcx_base, sbus5_irq,
                      MAX(CG3_VRAM_SIZE,
                          ROUND_UP(graphic_width * graphic_height, MiB)),
                      graphic_width, graphic_height, graphic_depth);
@@ -993,7 +1009,7 @@ static void sun4m_hw_init(MachineState *machine)
                 exit(1);
             }
 
-            tcx_init(hwdef->tcx_base, slavio_irq[11], 0x00100000,
+            tcx_init(hwdef->tcx_base, sbus5_irq, 0x00100000,
                      graphic_width, graphic_height, graphic_depth);
             vga_interface_created = true;
         }
@@ -1095,10 +1111,12 @@ static void sun4m_hw_init(MachineState *machine)
         sysbus_realize_and_unref(s, &error_fatal);
         sysbus_mmio_map(s, 0, hwdef->cs_base);
         /*
-         * OpenBIOS gives the node "intr" 5, so the guest's handler is at
-         * interrupt level 5: interrupt bit 9 (SBus level 3) raises it.
+         * SBus level 5, processor level 9, as the real SS-5 and its PROM
+         * have it. OpenBIOS (machines/openbios patch 0018) gives the node
+         * "interrupts" 5 and "intr" 9 to match: Solaris takes the first,
+         * SunOS 4 the second.
          */
-        sysbus_connect_irq(s, 0, slavio_irq[9]);
+        sysbus_connect_irq(s, 0, qdev_get_gpio_in(sbus5_orgate, 1));
     }
 
     if (hwdef->dbri_base) {

@@ -8,8 +8,8 @@
  * by the virtual clock, the APC must take the first buffer (PI, the next
  * registers free again: PD), take the second one when the first has been
  * played and then run empty (PMI, PM), in real time at 8000 Hz, with each
- * of those interrupts on system interrupt bit 9, the CPU's level 5, where
- * OpenBIOS's "intr" 5 puts the guest's handler. The samples must reach the
+ * of those interrupts at SBus level 5, the CPU's level 9, as on the real
+ * machine and as OpenBIOS's "intr" 9 says. The samples must reach the
  * audiodev decoded, all of them, also when the driver turns the DMA off as
  * soon as the pipe is empty: a wav file with the right values for exactly
  * the length of the two buffers.
@@ -59,9 +59,9 @@
 #define BUF_LEN         800             /* 100 ms at 8000 Hz */
 #define BUF2_OFFSET     0x1000          /* the second one on the next page */
 
-#define CS_LEVEL        5               /* processor level, the "intr" */
-#define CS_INTBIT       9               /* system bit: SBus level 3 */
-#define OTHER_LEVELS    ((1u << 9) | (1u << 11))    /* not these */
+#define CS_LEVEL        9               /* processor level, the "intr" */
+#define CS_INTBIT       11              /* system bit: SBus level 5 */
+#define OTHER_LEVELS    ((1u << 5) | (1u << 11))    /* not these */
 
 /* Two u-law values and what they decode to (G.711) */
 #define ULAW_POS        0xa0
