@@ -78,6 +78,28 @@ The qtests `sun4m-solaris-idle-test`, `sun4m-solaris-smp-idle-test`,
 `sun4m-pil-delay-slot-test`, `sun4m-apc-test` and `sun4m-mmu-nofault-test`
 check these, and `am53c974-test` (i386) the ESP.
 
+## OpenBIOS
+
+`pc-bios/openbios-sparc32` is built with two of LEMU's patches
+([../openbios](../openbios/README.md)):
+
+- **Empty SCSI targets.** OpenBIOS took every empty target for a device of
+  unknown type (`UNKNOWN0` to `UNKNOWN7` in the aliases), the disk on
+  target 3 got only `disk3`, and the default boot (`disk:a disk`) failed
+  with `No valid state has been set by load or init-program` (QEMU 9.2 and
+  later). Now only the disk is listed and its aliases are `disk` and
+  `hd`, so the default boot finds it.
+- **Stop-A.** Stop-A (L1-A) on a running Solaris or SunOS, or a break on
+  its serial console, turned the machine off (`abort, power off`). With
+  the patch it stops at the `ok` prompt, `go` resumes the guest and `boot`
+  resets the machine first, as on a Sun. Reported with Solaris 2.6 on the
+  SS-5, SS-10 and SS-20 with QEMU 11.1; not run with LEMU, which has no
+  free guest that calls the firmware there (NetBSD 11.1's installer
+  ignores Stop-A).
+
+`tests/functional/sparc/test_openbios.py` checks the SCSI devices and
+aliases.
+
 ## Keyboard and mouse
 
 Both are on one serial chip (`hw/char/escc.c`): the keyboard on channel A,
