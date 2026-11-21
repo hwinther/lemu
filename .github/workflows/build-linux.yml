@@ -1,0 +1,180 @@
+# Linux x86_64 build of the kit binaries and qemu-system-sparc64, made with
+# machines/release/build-linux.sh (AlmaLinux 9 in Docker, glibc 2.34), packed
+# with the firmware and keymaps in the layout of the kits so that it runs
+# without -L.
+name: Build Linux
+
+on:
+  push:
+    branches: [ci/windows-build]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      TARGETS: i386 ppc ppc64 alpha mips64el mips64 hppa sparc m68k sparc64
+    steps:
+      # full history and tags: build-linux.sh passes
+      # "git describe --match 'v*'" as the version
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Describe
+        id: meta
+        run: |
+          ver=$(git describe --match 'v*' --dirty)
+          short=$(git rev-parse --short=12 HEAD)
+          echo "git id: $ver"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "name=lemu-linux-x86_64-$short" >> "$GITHUB_OUTPUT"
+          nproc
+          df -h / "$RUNNER_TEMP"
+          docker version --format 'docker {{.Server.Version}}'
+
+      # build-linux.sh copies the tree into a container that has no git, so
+      # configure cannot clone the subprojects there: fetch them here, with
+      # the meson that QEMU ships
+      - name: Fetch the subprojects
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --no-index python/wheels/meson-*.whl
+          "$RUNNER_TEMP/venv/bin/meson" subprojects download \
+              keycodemapdb berkeley-softfloat-3 berkeley-testfloat-3 dtc
+          ls -d subprojects/keycodemapdb subprojects/berkeley-softfloat-3 \
+              subprojects/berkeley-testfloat-3 subprojects/dtc
+
+      - name: Build
+        run: |
+          sh machines/release/build-linux.sh amd64 . "$RUNNER_TEMP/out" |
+              tee "$RUNNER_TEMP/out-check.log"
+
+      - name: Show the build logs
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP"/out/linux-x86_64-*.log; do
+              [ -f "$f" ] || continue
+              echo "::group::$f"
+              tail -n 100 "$f"
+              echo "::endgroup::"
+          done
+
+      # QEMU looks for firmware in ../share/qemu from the binary's folder and
+      # for keymaps in ../share/qemu/keymaps, the layout of the kits' bin/
+      - name: Pack
+        id: pack
+        env:
+          NAME: ${{ steps.meta.outputs.name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          out=$RUNNER_TEMP/out
+          d=$RUNNER_TEMP/dist/$NAME
+          mkdir -p "$d/share/qemu/dtb" "$d/share/qemu/keymaps" "$d/logs"
+          # the container wrote OUT as root: copy it to a folder of our own
+          cp -R "$out/linux-x86_64" "$d/linux-x86_64"
+
+          # every blob in pc-bios/meson.build except those for targets
+          # not built here (arm, s390x, hexagon, riscv) and the installer
+          # bitmap; none of the targets needs the .bz2 edk2 images
+          blobs=$(sed -n "/^blobs = \[/,/^\]/s/^ *'\([^']*\)',\$/\1/p" pc-bios/meson.build |
+              grep -Ev '^(ast27x0_bootrom\.bin|npcm[78]xx_bootrom\.bin|s390-ccw\.img|hexagon.*|opensbi-.*|edk2-licenses\.txt|qemu-nsis\.bmp)$')
+          for f in $blobs; do
+              cp "pc-bios/$f" "$d/share/qemu/"
+          done
+          # the PowerPC boards' device trees (not the microblaze ones)
+          for f in $(sed -n "/^dtbs = \[/,/^\]/s/^ *'\([^']*\)',\$/\1/p" pc-bios/dtb/meson.build |
+                  grep -v '^petalogix'); do
+              cp "pc-bios/dtb/$f" "$d/share/qemu/dtb/"
+          done
+          # the keymaps are in the tree; only the VNC and RDP servers use them
+          for f in pc-bios/keymaps/*; do
+              case $f in
+              *meson.build|*Makefile) ;;
+              *) cp "$f" "$d/share/qemu/keymaps/" ;;
+              esac
+          done
+          cp COPYING COPYING.LIB "$d/"
+          cp "$out"/linux-x86_64-*.log "$out"/linux-x86_64-*.features \
+              "$RUNNER_TEMP/out-check.log" "$d/logs/"
+
+          fail=0
+          for t in $TARGETS; do
+              [ -x "$d/linux-x86_64/qemu-system-$t" ] ||
+                  { echo "MISSING: qemu-system-$t"; fail=1; }
+          done
+          for f in openbios-sparc32 openbios-sparc64 'QEMU,tcx.bin' \
+                  'QEMU,cgthree.bin' openbios-ppc bios-256k.bin vgabios-stdvga.bin \
+                  palcode-clipper hppa-firmware.img keymaps/en-us dtb/bamboo.dtb; do
+              [ -s "$d/share/qemu/$f" ] || { echo "MISSING: share/qemu/$f"; fail=1; }
+          done
+          [ $fail = 0 ] || exit 1
+
+          # run from the packed layout: the binary must start and find its
+          # libraries and the firmware without -L
+          "$d/linux-x86_64/qemu-system-sparc" --version
+          "$d/linux-x86_64/qemu-system-sparc64" --version
+          timeout 20 "$d/linux-x86_64/qemu-system-sparc" -M SS-5 -nographic \
+              -prom-env 'auto-boot?=false' < /dev/null > "$RUNNER_TEMP/boot.log" 2>&1 || true
+          grep -a 'OpenBIOS' "$RUNNER_TEMP/boot.log" ||
+              { echo "MISSING: the OpenBIOS banner"; cat "$RUNNER_TEMP/boot.log"; exit 1; }
+
+          {
+          echo "LEMU for Linux x86_64 (glibc 2.34 or newer)"
+          echo
+          echo "Built by GitHub Actions from $GITHUB_REPOSITORY, branch $GITHUB_REF_NAME,"
+          echo "commit $GITHUB_SHA ($VERSION)."
+          echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          echo
+          echo "Binaries (TCG only) in linux-x86_64/: $(for t in $TARGETS; do printf 'qemu-system-%s ' "$t"; done)"
+          echo "They were built with machines/release/build-linux.sh, as for LEMU's"
+          echo "kits: SDL, PulseAudio, ALSA, slirp, VNC, RDP, the HMP monitor and the"
+          echo "block formats of the kits. Their libraries are in linux-x86_64/lib."
+          echo
+          echo "Keep the folder together: the binaries find the firmware in share/qemu"
+          echo "and the keymaps in share/qemu/keymaps, so -L is not needed. In a kit,"
+          echo "linux-x86_64/ and share/ go into the kit's bin/ folder. logs/ holds the"
+          echo "build logs and each binary's feature list."
+          echo
+          echo "SHA-256 of the OpenBIOS images:"
+          (cd "$d/share/qemu" && sha256sum openbios-sparc32 openbios-sparc64 openbios-ppc)
+          } > "$d/README.txt"
+
+          # a tar keeps the execute bits, which the artifact zip drops
+          tar -C "$RUNNER_TEMP/dist" -czf "$RUNNER_TEMP/$NAME.tar.gz" "$NAME"
+          echo "tar=$RUNNER_TEMP/$NAME.tar.gz" >> "$GITHUB_OUTPUT"
+          (cd "$d" && find . -type f | LC_ALL=C sort && du -sh .)
+          ls -l "$RUNNER_TEMP/$NAME.tar.gz"
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: ${{ steps.pack.outputs.tar }}
+          if-no-files-found: error
+
+      - name: Upload the logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.meta.outputs.name }}-logs
+          path: |
+            ${{ runner.temp }}/out/*.log
+            ${{ runner.temp }}/out-check.log
+          if-no-files-found: ignore
