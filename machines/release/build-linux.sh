@@ -1,13 +1,14 @@
 #!/bin/sh
-# One Linux build of every kit binary on AlmaLinux 9 (glibc 2.34, Python 3.12)
-# in Docker: bundle the libraries into OUT/linux-x86_64 (OUT/linux-aarch64
-# for arm64) and list each binary's features.
+# One Linux build of every kit binary and qemu-system-sparc64 on AlmaLinux 9
+# (glibc 2.34, Python 3.12) in Docker: bundle the libraries into
+# OUT/linux-x86_64 (OUT/linux-aarch64 for arm64) and list each binary's
+# features.
 # Feature set = everything the 40p, 7006, pseries, jensen and rm200 builds had;
 # qemu-system-hppa (HP B160L), qemu-system-i386 (PC), qemu-system-sparc
 # (SPARCstation 5) and qemu-system-m68k (Quadra 800) get the same.
 # usage: build-linux.sh amd64|arm64 SRC OUT
 set -e
-BINS="qemu-system-i386 qemu-system-ppc qemu-system-ppc64 qemu-system-alpha qemu-system-mips64el qemu-system-mips64 qemu-system-hppa qemu-system-sparc qemu-system-m68k"
+BINS="qemu-system-i386 qemu-system-ppc qemu-system-ppc64 qemu-system-alpha qemu-system-mips64el qemu-system-mips64 qemu-system-hppa qemu-system-sparc qemu-system-m68k qemu-system-sparc64"
 if [ "$1" != --container ]; then
     [ $# -eq 3 ] || { echo "usage: $0 amd64|arm64 SRC OUT" >&2; exit 1; }
     mkdir -p "$3"
@@ -29,7 +30,7 @@ tar -C /src --exclude=./.git --exclude='./build*' --exclude=.env -cf - . | tar -
 cd /b/build
 # the source is copied without .git, so pass the git id for --version
 ../configure ${PKGVERSION:+--with-pkgversion=$PKGVERSION} --python=/usr/bin/python3.12 \
-    --target-list=i386-softmmu,ppc-softmmu,ppc64-softmmu,alpha-softmmu,mips64el-softmmu,mips64-softmmu,hppa-softmmu,sparc-softmmu,m68k-softmmu \
+    --target-list=i386-softmmu,ppc-softmmu,ppc64-softmmu,alpha-softmmu,mips64el-softmmu,mips64-softmmu,hppa-softmmu,sparc-softmmu,m68k-softmmu,sparc64-softmmu \
     --without-default-features --enable-system --enable-tcg --enable-hmp --enable-sdl \
     --enable-pixman --enable-slirp --enable-pa --enable-alsa --enable-malloc-trim --enable-membarrier \
     --enable-fdt=internal --enable-vnc --enable-rdp --enable-vvfat --enable-qcow1 --enable-vdi --enable-vmdk \
